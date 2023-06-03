@@ -27,26 +27,25 @@ const getRouter = () => {
       password,
 
     } = req.body;
-    const passHash = await bcrypt.hash(password, 10)
-    var newUser = new User({
-      name: name,
-      lastName: lastName,
-      email: email,
-      weight: weight,
-      height: height,
-      username: username,
-      password: passHash,
-      birth_date: new Date(),
-      visibility: true
-    });
-
-    newUser.save()
-      .then(doc => {
-        res.send(doc);
-      })
-      .catch(err => {
-        res.send(err);
+    try {
+      const passHash = await bcrypt.hash(password, 10)
+      var newUser = new User({
+        name: name,
+        lastName: lastName,
+        email: email,
+        weight: weight,
+        height: height,
+        username: username,
+        password: passHash,
+        birth_date: new Date(),
+        visibility: true
       });
+
+      const user = await newUser.save()
+      res.send(user)
+    } catch (err) {
+      res.status(500).send(err)
+    }
   });
   router.get('/getUsers', async (req, res) => {
     User.find()
@@ -60,19 +59,24 @@ const getRouter = () => {
 
   router.post('/verify', async (req, res) => {
     const { username, password } = req.body;
-
-    await User.findOne({ username: { $eq: username } })
-      .then(async user => {
+    try {
+      const user = await User.findOne({ username: { $eq: username } })
+      if (user) {
         const isCorrect = await bcrypt.compare(password, user.password)
         if (isCorrect) {
-          res.send(user)
+          res.send(user._id)
         } else {
           res.send('Credenciales erroneas')
         }
-      })
-      .catch(err => {
-        res.status(500).send(err)
-      })
+      } else {
+        res.status(404).send('Error de credenciales')
+      }
+
+
+    } catch (err) {
+      res.status(500).send('Error al realizar la peticion')
+    }
+
   })
 
   router.put('/updUser/:id', async (req, res) => {
@@ -106,17 +110,24 @@ const getRouter = () => {
       days_of_week: days_of_week,
       visibility: true
     });
-
-    newRoutine.save()
-      .then(doc => {
-        res.send(doc);
-      })
-      .catch(err => {
-        res.send(err);
-      });
+    try {
+      const routine = await newRoutine.save()
+      if (!routine) {
+        return res.status(500).send('Error al crear rutina');
+      }
+      const user = await User.findOneAndUpdate(
+        { _id: id },
+        { $push: { routines: routine } },
+        { new: true }
+      );
+      res.send(user);
+    } catch (err) {
+      res.status(500).send(err)
+    }
   })
+
   router.post('/createDayRoutine', async (req, res) => {
-    const { day_of_week, exercises } = req.body
+    const { day_of_week, exercises } = req.body;
 
     var newDayRoutine = new DayRoutine({
       day_of_week: day_of_week,
@@ -124,14 +135,14 @@ const getRouter = () => {
       visibility: true
     });
 
-    newDayRoutine.save()
-      .then(doc => {
-        res.send(doc._id);
-      })
-      .catch(err => {
-        res.send(err);
-      });
-  })
+    try {
+      var dayRoutine = await newDayRoutine.save();
+      res.status(200).send(dayRoutine._id);
+    } catch (err) {
+      res.status(500).send('Error al crear -> ' + err);
+    }
+  });
+
   router.get('/getRoutines', (_, res) => {
     Routine.find()
       .then(routines => {
@@ -148,7 +159,8 @@ const getRouter = () => {
       const user = await User.findOne({ _id: { $eq: userId } })
 
       if (!user) {
-        return res.status(404).send('Usuario no encontrado');
+        res.status(404).send('Usuario no encontrado');
+        console.log('usuario no encontrado')
       }
 
       const routineIds = user.routines;
@@ -159,9 +171,33 @@ const getRouter = () => {
 
       res.send(routines);
     } catch (error) {
-      res.status(500).send(error.message);
+      console.log(error)
+      res.status(500).send(error);
     }
   });
+  router.get('/getDayRoutines/:id', async (req, res) =>{
+    const { id } = req.params;
+
+    try {
+      const routine = await Routine.findOne({ _id: { $eq: id } })
+
+      if (!routine) {
+        res.status(404).send('rutina no encontrada');
+        console.log('rutina no encontrada')
+      }
+
+      const DayRoutineIds = routine.days_of_week;
+
+      const dayRoutines = await DayRoutine.find({
+        _id: { $in: DayRoutineIds.map(id => new mongoose.Types.ObjectId(id)) }
+      });
+
+      res.send(dayRoutines);
+    } catch (error) {
+      console.log(error)
+      res.status(500).send(error);
+    }
+  })
   router.put('/sendFriendRequest/:id', async (req, res) => {
     const { id } = req.params;
     const { username } = req.body;
@@ -308,14 +344,14 @@ const getRouter = () => {
       res.status(500).send(err)
     }
   })
-  router.put('/getRoutine/:id', async (req, res) => {
+  router.get('/getRoutine/:id', async (req, res) => {
     const { id } = req.params
     try {
       const routine = await Routine.findOne({ _id: id })
       if (!routine) {
         res.status(404).send("Rutina no encontrada")
       }
-      res.send(routine)
+      res.send(routine)      
     } catch (err) {
       res.status(500).send(err)
     }
@@ -345,7 +381,7 @@ const getRouter = () => {
       res.status(500).send(err)
     }
   })
-  router.put('/getDayRoutine/:id', async (req, res) => {
+  router.get('/getDayRoutine/:id', async (req, res) => {
     const { id } = req.params
     try {
       const day = await DayRoutine.findOne({ _id: id })
@@ -368,25 +404,26 @@ const getRouter = () => {
   //Obtener posts para el perfil del usuario
 
 
-  // var storage = multer.diskStorage({
-  //   destination: function (req, file, cb) {
-  //     // cb(null, path.join(__dirname, '../', '../', '/uploads/'))
-  //     cb(null, './uploads')
-  //   },
-  //   filename: function (req, file, cb) {
-  //     try {
-  //       console.log(req)
-  //       cb(null, Date.now() + "-" + file.originalname)
+  var storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      // cb(null, path.join(__dirname, '../', '../', '/uploads/'))
+      cb(null, './uploads')
+    },
+    filename: function (req, file, cb) {
+      try {
+        console.log(req)
+        cb(null, Date.now() + "-" + file.originalname)
 
-  //     } catch (err) {
-  //       console.error('Error al guardar el archivo: ', err)
-  //       cb(err)
-  //     }
+      } catch (err) {
+        console.error('Error al guardar el archivo: ', err)
+        cb(err)
+      }
 
-  //   }
-  // })
+    }
+  })
 
   var upload = multer({ dest: './uploads/' })
+  // var upload = multer({ storage: storage })
 
   router.put('/createPost/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
@@ -426,9 +463,9 @@ const getRouter = () => {
     }
   });
   router.put('/searchUsername/:id', async (req, res) => {
-    const {username} = req.params
-    try{
-      User.find({username: {$regex: `${username}`, $options: 'i'}})
+    const { username } = req.params
+    try {
+      User.find({ username: { $regex: `${username}`, $options: 'i' } })
         .then(users => {
           res.send(users)
         })
@@ -436,7 +473,7 @@ const getRouter = () => {
           console.error(err)
           res.status(404).send(err)
         })
-    }catch(err){
+    } catch (err) {
       console.error(err)
     }
   })
