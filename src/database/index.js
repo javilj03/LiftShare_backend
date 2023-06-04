@@ -99,7 +99,26 @@ const getRouter = () => {
       res.status(500).send(error.message);
     }
   })
+  router.put('/updRoutine/:id', async (req, res) => {
+    const { id } = req.params;
+    const updatedField = req.body;
 
+    try {
+      const routine = await Routine.findOneAndUpdate(
+        { _id: id },
+        { $set: updatedField },
+        { new: true }
+      );
+
+      if (!routine) {
+        return res.status(404).send('No existe la rutina');
+      }
+
+      res.send(user);
+    } catch (error) {
+      res.status(500).send(error.message);
+    }
+  })
   router.put('/createRoutine/:id', async (req, res) => {
     const { id } = req.params
     const { name, desc, days_of_week } = req.body
