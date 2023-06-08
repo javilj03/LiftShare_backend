@@ -47,10 +47,11 @@ let DayRoutine = mongoose.model('Day_routine', DayroutineSchema)
 
 const PostSchema = new Schema({
     title: String,
-    description: String,
-    src: String,
-    date: Date
-})
+    image: String,
+    date: Date,
+    owner: { id: String, username: String }
+});
+
 let Post = mongoose.model('Post', PostSchema)
 
 module.exports = { User, Routine, DayRoutine, Post } //Exporting the created module.
