@@ -2,12 +2,13 @@ const mongoose = require('mongoose');
 const express = require('express');
 const { User, Routine, DayRoutine, Post } = require('./types');
 const bcrypt = require('bcrypt')
-const multer = require('multer');
+const fetch = require('node-fetch')
+
 const path = require('path');
 
 const getRouter = () => {
   const router = express.Router();
-  const connectionString = 'mongodb://admin:pass@172.27.240.1:27017/liftShare?authSource=admin';
+  const connectionString = 'mongodb://admin:pass@44.197.8.254:27017/liftShare?authSource=admin';
 
   mongoose.connect(connectionString)
     .then(() => {
@@ -57,6 +58,20 @@ const getRouter = () => {
       })
   })
 
+  router.get('/getUser/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      const user = await User.findOne({ _id: id });
+      if (!user) {
+        return res.status(404).send('Usuario no encontrado');
+      }
+      res.send(user);
+    } catch (err) {
+      console.error(err);
+      res.status(500).send(err);
+    }
+  });
+
   router.post('/verify', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -104,6 +119,18 @@ const getRouter = () => {
     const updatedField = req.body;
 
     try {
+      if (updatedField.days_of_week) {
+        // Si se proporciona el campo "days_of_week", se elimina la lista existente
+        await Routine.findByIdAndUpdate(
+          id,
+          { $unset: { days_of_week: 1 } },
+          { new: true }
+        );
+
+        // Se añade la nueva lista de días si se proporciona
+        updatedField.days_of_week = updatedField.days_of_week;
+      }
+
       const routine = await Routine.findOneAndUpdate(
         { _id: id },
         { $set: updatedField },
@@ -114,11 +141,13 @@ const getRouter = () => {
         return res.status(404).send('No existe la rutina');
       }
 
-      res.send(user);
+      res.send(routine);
     } catch (error) {
       res.status(500).send(error.message);
     }
-  })
+  });
+
+
   router.put('/createRoutine/:id', async (req, res) => {
     const { id } = req.params
     const { name, desc, days_of_week } = req.body
@@ -194,7 +223,7 @@ const getRouter = () => {
       res.status(500).send(error);
     }
   });
-  router.get('/getDayRoutines/:id', async (req, res) =>{
+  router.get('/getDayRoutines/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -219,11 +248,11 @@ const getRouter = () => {
   })
   router.put('/sendFriendRequest/:id', async (req, res) => {
     const { id } = req.params;
-    const { username } = req.body;
+    const { friendId } = req.body;
 
     try {
       const updatedUser = await User.findOneAndUpdate(
-        { username: username },
+        { _id: friendId },
         { $addToSet: { friend_request: id } },
         { new: true }
       );
@@ -234,10 +263,10 @@ const getRouter = () => {
 
       res.send(updatedUser);
     } catch (error) {
-      res.status(500).send(error.message);
+      res.status(500).send(error);
     }
   });
-  router.put('/getFriendRequest/:id', async (req, res) => {
+  router.get('/getFriendRequest/:id', async (req, res) => {
     const { id } = req.params
 
     try {
@@ -250,7 +279,7 @@ const getRouter = () => {
       const userIds = user.friend_request;
 
       const users = await User.find({
-        _id: { $in: userIds.map(id => new mongoose.Types.ObjectId(id)) }
+        _id: { $in: userIds.map(_id => _id) }
       });
 
       res.send(users);
@@ -278,6 +307,11 @@ const getRouter = () => {
         { $addToSet: { friends: friendId } },
         { new: true }
       );
+      await User.findOneAndUpdate(
+        { _id: friendId },
+        { $addToSet: { friends: id } },
+        { new: true }
+      );
       res.send(friend4User);
     } catch (error) {
       res.status(500).send(error.message);
@@ -292,6 +326,11 @@ const getRouter = () => {
       const updatedUser = await User.findOneAndUpdate(
         { _id: id },
         { $pull: { friends: friendId } },
+        { new: true }
+      );
+      await User.findOneAndUpdate(
+        { _id: friendId },
+        { $pull: { friends: id } },
         { new: true }
       );
 
@@ -324,10 +363,10 @@ const getRouter = () => {
       res.status(500).send(error.message);
     }
   });
-  router.put('/getFriends/:id', async (req, res) => {
+  router.get('/getFriends/:id', async (req, res) => {
     try {
       const { id } = req.params
-      User.findOne({ _id: id })
+      const user = await User.findOne({ _id: id })
       if (!user) {
         return res.status(404).send('Usuario no encontrado');
       }
@@ -335,10 +374,10 @@ const getRouter = () => {
       const userIds = user.friends;
 
       const users = await User.find({
-        _id: { $in: userIds.map(id => new mongoose.Types.ObjectId(id)) }
+        _id: { $in: userIds.map(_id => _id) }
       });
 
-      res.send(users);
+      res.status(200).send(users);
     } catch (error) {
       res.status(500).send(error.message);
     }
@@ -370,7 +409,7 @@ const getRouter = () => {
       if (!routine) {
         res.status(404).send("Rutina no encontrada")
       }
-      res.send(routine)      
+      res.send(routine)
     } catch (err) {
       res.status(500).send(err)
     }
@@ -420,68 +459,127 @@ const getRouter = () => {
       res.status(500).send(err)
     }
   })
-  //Obtener posts para el perfil del usuario
 
-
-  var storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      // cb(null, path.join(__dirname, '../', '../', '/uploads/'))
-      cb(null, './uploads')
-    },
-    filename: function (req, file, cb) {
-      try {
-        console.log(req)
-        cb(null, Date.now() + "-" + file.originalname)
-
-      } catch (err) {
-        console.error('Error al guardar el archivo: ', err)
-        cb(err)
-      }
-
-    }
-  })
-
-  var upload = multer({ dest: './uploads/' })
-  // var upload = multer({ storage: storage })
-
-  router.put('/createPost/:id', upload.single('image'), async (req, res) => {
-    const { id } = req.params;
-    const { title, description } = req.body;
-
-    const image = req.file;
+  router.post('/upload/:id', async (req, res) => {
     try {
-      // Verificar si se ha enviado una imagen
-      if (!image) {
-        res.status(400).send('No se ha enviado ninguna imagen.');
-        return;
-      } else {
-        console.log('entro')
-        console.log(image)
+      console.log(req.files);
+      const { id } = req.params;
+      const { title } = req.body;
+      let response = await fetch('https://www.filestackapi.com/api/store/S3?key=A9u585u88TxKQnsVxDmKfz', {
+        method: 'POST',
+        headers: {
+          "Content-Type": "image/png"
+        },
+        body: req.files.image.data
+      }).then((r) => r.json());
+      let url = response.url;
+
+      // Obtener el usuario al que se le agrega el post
+      const user = await User.findOne({ _id: id });
+      if (!user) {
+        return res.status(404).send('Usuario no encontrado');
       }
 
-      // Crear el nuevo post
-      const newPost = new Post({
-        title,
-        description,
-        src: `uploads/${image.filename}`,
+      var newPost = new Post({
+        title: title,
+        image: url,
+        date: new Date(),
+        owner: {
+          id: id,
+          username: user.username
+        }
       });
 
-      // Guardar el post en la base de datos
-      const savedPost = await newPost.save();
+      const post = await newPost.save();
 
-      // Actualizar la lista de posts del usuario
-      await User.findByIdAndUpdate(
-        id,
-        { $push: { posts: savedPost._id } },
-        { new: true }
-      );
+      // Agregar el post al usuario
+      user.posts.push(post);
+      await user.save();
 
-      res.send(savedPost);
+      res.send(post);
+    } catch (err) {
+      console.log(err);
+      res.status(500).send('Error al guardar el post');
+    }
+  });
+
+  router.get('/getPosts/:id', async (req, res) => {
+    try {
+      const { id } = req.params
+      const user = await User.findOne({ _id: id })
+      if (!user) {
+        return res.status(404).send('Usuario no encontrado');
+      }
+
+      const userIds = user.posts;
+
+      const posts = await Post.find({
+        _id: { $in: userIds.map(_id => _id) }
+      });
+
+      res.status(200).send(posts);
     } catch (error) {
       res.status(500).send(error.message);
     }
+  })
+  router.get('/getPostFromFriends/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = await User.findOne({ _id: id });
+      if (!user) {
+        return res.status(404).send('Usuario no encontrado');
+      }
+
+      const friendsIds = user.friends;
+
+      const posts = await Post.find({ 'owner.id': { $in: friendsIds } })
+        .sort({ date: -1 });
+
+      res.send(posts);
+    } catch (err) {
+      console.log(err);
+      res.status(500).send('Error al obtener los posts de los amigos');
+    }
   });
-  router.put('/searchUsername/:id', async (req, res) => {
+  router.delete('/deletePost/:postId', async (req, res) => {
+    const { postId } = req.params;
+
+    try {
+      // Obtener el post a eliminar
+      const post = await Post.findById(postId);
+      if (!post) {
+        return res.status(404).send('Post no encontrado');
+      }
+
+      // Obtener la URL del archivo subido
+      const fileUrl = post.image;
+
+      // Eliminar el archivo de Filestack
+      await fetch(fileUrl, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'A9u585u88TxKQnsVxDmKfz' // Reemplaza con tu clave de API de Filestack
+        }
+      });
+
+      // Eliminar el post de la base de datos
+      await post.deleteOne();
+
+      // Eliminar el post del campo 'posts' del usuario propietario
+      await User.findByIdAndUpdate(
+        post.owner.id,
+        { $pull: { posts: postId } },
+        { new: true }
+      );
+
+      res.send('Post eliminado exitosamente');
+    } catch (error) {
+      console.error(error);
+      res.status(500).send('Error al eliminar el post');
+    }
+  });
+  router.get('/searchUsername/:username', async (req, res) => {
     const { username } = req.params
     try {
       User.find({ username: { $regex: `${username}`, $options: 'i' } })
