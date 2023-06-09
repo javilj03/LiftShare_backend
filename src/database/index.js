@@ -81,7 +81,7 @@ const getRouter = () => {
         if (isCorrect) {
           res.send(user._id)
         } else {
-          res.send('Credenciales erroneas')
+          res.status(500).send('Credenciales erroneas')
         }
       } else {
         res.status(404).send('Error de credenciales')
@@ -117,35 +117,29 @@ const getRouter = () => {
   router.put('/updRoutine/:id', async (req, res) => {
     const { id } = req.params;
     const updatedField = req.body;
-
+  
     try {
       if (updatedField.days_of_week) {
-        // Si se proporciona el campo "days_of_week", se elimina la lista existente
-        await Routine.findByIdAndUpdate(
-          id,
-          { $unset: { days_of_week: 1 } },
-          { new: true }
-        );
-
-        // Se añade la nueva lista de días si se proporciona
-        updatedField.days_of_week = updatedField.days_of_week;
+        // Sobrescribir el campo "days_of_week"
+        await Routine.findByIdAndUpdate(id, { days_of_week: updatedField.days_of_week }, { new: true });
       }
-
+  
       const routine = await Routine.findOneAndUpdate(
         { _id: id },
         { $set: updatedField },
         { new: true }
       );
-
+  
       if (!routine) {
-        return res.status(404).send('No existe la rutina');
+        return res.status(404).json({ error: 'No existe la rutina' });
       }
-
+  
       res.send(routine);
     } catch (error) {
       res.status(500).send(error.message);
     }
   });
+  
 
 
   router.put('/createRoutine/:id', async (req, res) => {
@@ -414,14 +408,25 @@ const getRouter = () => {
       res.status(500).send(err)
     }
   })
-  router.put('/deleteRoutine/:id', async (req, res) => {
-    const { id } = req.params
+  router.delete('/deleteRoutine/:id', async (req, res) => {
+    const { id } = req.params;
     try {
-      Routine.deleteOne({ _id: id })
-    } catch (err) {
-      res.status(500).send(err)
+      const deletedRoutine = await Routine.findOneAndDelete({ _id: id });
+  
+      if (!deletedRoutine) {
+        return res.status(404).send('Rutina no encontrada');
+      }
+  
+      const dayRoutineIds = deletedRoutine.days_of_week;
+      await DayRoutine.deleteMany({ _id: { $in: dayRoutineIds } });
+  
+      res.send('Rutina eliminada correctamente');
+    } catch (error) {
+      res.status(500).send(error.message);
+      console.log(error);
     }
-  })
+  });
+
   router.put('/editDayRoutine/:id', async (req, res) => {
     const { id } = req.params
     const updatedField = req.body
@@ -564,7 +569,7 @@ const getRouter = () => {
       });
 
       // Eliminar el post de la base de datos
-      await post.deleteOne();
+      await Post.findByIdAndRemove(postId)
 
       // Eliminar el post del campo 'posts' del usuario propietario
       await User.findByIdAndUpdate(
@@ -579,6 +584,32 @@ const getRouter = () => {
       res.status(500).send('Error al eliminar el post');
     }
   });
+  router.post('/uploadImgProfile/:id', async (req, res) => {
+    try {
+      console.log(req.files);
+      const { id } = req.params;
+      let response = await fetch('https://www.filestackapi.com/api/store/S3?key=A9u585u88TxKQnsVxDmKfz', {
+        method: 'POST',
+        headers: {
+          "Content-Type": "image/png"
+        },
+        body: req.files.image.data
+      }).then((r) => r.json());
+      let url = response.url;
+  
+      // Obtener el usuario al que se le agrega el post
+      const user = await User.findOneAndUpdate({ _id: id }, { image: url }, { new: true });
+      if (!user) {
+        return res.status(404).send('Usuario no encontrado');
+      }
+  
+      res.send(user);
+    } catch (err) {
+      console.log(err);
+      res.status(500).send('Error al guardar la imagen del perfil');
+    }
+  });
+  
   router.get('/searchUsername/:username', async (req, res) => {
     const { username } = req.params
     try {

@@ -11,6 +11,7 @@ const userSchema = new Schema({
     height: Number,
     birth_date: Date,
     visibility: Boolean,
+    image: String,
     posts: [
         { type: mongoose.Types.ObjectId, ref: 'Post' }
     ],
